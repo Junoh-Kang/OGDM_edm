@@ -1,0 +1,186 @@
+# Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# This work is licensed under a Creative Commons
+# Attribution-NonCommercial-ShareAlike 4.0 International License.
+# You should have received a copy of the license along with this
+# work. If not, see http://creativecommons.org/licenses/by-nc-sa/4.0/
+
+"""Loss functions used in the paper
+"Elucidating the Design Space of Diffusion-Based Generative Models"."""
+
+import torch
+from torch_utils import persistence
+
+#----------------------------------------------------------------------------
+# Loss function corresponding to the variance preserving (VP) formulation
+# from the paper "Score-Based Generative Modeling through Stochastic
+# Differential Equations".
+
+@persistence.persistent_class
+class VPLoss:
+    def __init__(self, beta_d=19.9, beta_min=0.1, epsilon_t=1e-5):
+        self.beta_d = beta_d
+        self.beta_min = beta_min
+        self.epsilon_t = epsilon_t
+
+    def __call__(self, net, images, labels, augment_pipe=None):
+        rnd_uniform = torch.rand([images.shape[0], 1, 1, 1], device=images.device)
+        sigma = self.sigma(1 + rnd_uniform * (self.epsilon_t - 1))
+        weight = 1 / sigma ** 2
+        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        n = torch.randn_like(y) * sigma
+        D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
+        loss = weight * ((D_yn - y) ** 2)
+        return loss
+
+    def sigma(self, t):
+        t = torch.as_tensor(t)
+        return ((0.5 * self.beta_d * (t ** 2) + self.beta_min * t).exp() - 1).sqrt()
+
+#----------------------------------------------------------------------------
+# Loss function corresponding to the variance exploding (VE) formulation
+# from the paper "Score-Based Generative Modeling through Stochastic
+# Differential Equations".
+
+@persistence.persistent_class
+class VELoss:
+    def __init__(self, sigma_min=0.02, sigma_max=100):
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+
+    def __call__(self, net, images, labels, augment_pipe=None):
+        rnd_uniform = torch.rand([images.shape[0], 1, 1, 1], device=images.device)
+        sigma = self.sigma_min * ((self.sigma_max / self.sigma_min) ** rnd_uniform)
+        weight = 1 / sigma ** 2
+        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        n = torch.randn_like(y) * sigma
+        D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
+        loss = weight * ((D_yn - y) ** 2)
+        return loss
+
+#----------------------------------------------------------------------------
+# Improved loss function proposed in the paper "Elucidating the Design Space
+# of Diffusion-Based Generative Models" (EDM).
+
+@persistence.persistent_class
+class EDMLoss:
+    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5):
+        self.P_mean = P_mean
+        self.P_std = P_std
+        self.sigma_data = sigma_data
+
+    def __call__(self, net, images, labels=None, augment_pipe=None):
+        rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
+        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        n = torch.randn_like(y) * sigma
+        D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
+        loss = weight * ((D_yn - y) ** 2)
+        return loss
+
+#----------------------------------------------------------------------------
+@persistence.persistent_class
+class EDMLoss_disc:
+    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5, gamma=0):
+        self.P_mean = P_mean
+        self.P_std = P_std
+        self.sigma_data = sigma_data
+        self.gamma = gamma
+
+    def __call__(self, net, images, labels=None, augment_pipe=None):
+        rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
+        y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
+        n = torch.randn_like(y) * sigma
+        D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
+        loss = weight * ((D_yn - y) ** 2)
+        return loss
+
+#----------------------------------------------------------------------------
+# sigma(t)
+def sigma(t, sigma_min=0.002, sigma_max=80, rho=7):
+    return (sigma_max**(1/rho) + t * (sigma_min**(1/rho) - sigma_max**(1/rho)))**rho
+
+# inverse of sigma(t)
+def sigma_inv(sigma, sigma_min=0.002, sigma_max=80, rho=7):
+    return (sigma**(1/rho) - sigma_max**(1/rho)) / (sigma_min**(1/rho) - sigma_max**(1/rho))
+
+# sample projection noise level
+def sample_noise_level(sigma, k=0.1, sigma_min=0.002, sigma_max=80, rho=7):
+    t = sigma_inv(sigma)
+    s = min(1, t + np.random.uniform(0,k))
+    return sigma(s)
+
+# EDM step
+def edm_step(
+    net, sigma, x_cur, class_labels=None,# randn_like=torch.randn_like,
+    sigma_min=0.002, sigma_max=80, rho=7,
+    #S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
+):
+    # Adjust noise levels based on what's supported by the network.
+    sigma_min = max(sigma_min, net.sigma_min)
+    sigma_max = min(sigma_max, net.sigma_max)
+
+    # Set time step
+    t_cur = sigma
+    t_next = sample_noise_level(sigma, k=0.1, sigma_min=sigma_min, sigma_max=sigma_max, rho=rho)
+    
+    # # Increase noise temporarily.
+    # gamma = min(S_churn / num_steps, np.sqrt(2) - 1) if S_min <= t_cur <= S_max else 0
+    # t_hat = net.round_sigma(t_cur + gamma * t_cur)
+    # x_hat = x_cur + (t_hat ** 2 - t_cur ** 2).sqrt() * S_noise * randn_like(x_cur)
+    t_hat = net.round_sigma(t_cur)
+    x_hat = x_cur
+
+    # Euler step.
+    denoised = net(x_hat, t_hat, class_labels).to(torch.float64)
+    d_cur = (x_hat - denoised) / t_hat
+    x_next = x_hat + (t_next - t_hat) * d_cur
+
+    # Apply 2nd order correction.
+    if t_next > sigma_min:
+        denoised = net(x_next, t_next, class_labels).to(torch.float64)
+        d_prime = (x_next - denoised) / t_next
+        x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+
+    return x_next
+
+# # Proposed EDM sampler (Algorithm 2).
+# def edm_sampler(
+#     net, latents, class_labels=None, randn_like=torch.randn_like,
+#     num_steps=18, sigma_min=0.002, sigma_max=80, rho=7,
+#     S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
+# ):
+#     # Adjust noise levels based on what's supported by the network.
+#     sigma_min = max(sigma_min, net.sigma_min)
+#     sigma_max = min(sigma_max, net.sigma_max)
+
+#     # Time step discretization.
+#     step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
+#     t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+#     t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) # t_N = 0
+
+#     # Main sampling loop.
+#     x_next = latents.to(torch.float64) * t_steps[0]
+#     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])): # 0, ..., N-1
+#         x_cur = x_next
+
+#         # Increase noise temporarily.
+#         gamma = min(S_churn / num_steps, np.sqrt(2) - 1) if S_min <= t_cur <= S_max else 0
+#         t_hat = net.round_sigma(t_cur + gamma * t_cur)
+#         x_hat = x_cur + (t_hat ** 2 - t_cur ** 2).sqrt() * S_noise * randn_like(x_cur)
+
+#         # Euler step.
+#         denoised = net(x_hat, t_hat, class_labels).to(torch.float64)
+#         d_cur = (x_hat - denoised) / t_hat
+#         x_next = x_hat + (t_next - t_hat) * d_cur
+
+#         # Apply 2nd order correction.
+#         if i < num_steps - 1:
+#             denoised = net(x_next, t_next, class_labels).to(torch.float64)
+#             d_prime = (x_next - denoised) / t_next
+#             x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+
+#     return x_next
