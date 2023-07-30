@@ -91,7 +91,7 @@ def training_loop(
             misc.print_module_summary(net, [images, sigma, labels], max_nesting=2)
             if disc_kwargs:
                 misc.print_module_summary(disc, [images, labels, ts], max_nesting=2)
-
+    
     # Setup optimizer.
     dist.print0('Setting up optimizer...')
     loss_fn = dnnlib.util.construct_class_by_name(**loss_kwargs) # training.loss.(VP|VE|EDM)Loss
@@ -99,8 +99,10 @@ def training_loop(
     augment_pipe = dnnlib.util.construct_class_by_name(**augment_kwargs) if augment_kwargs is not None else None # training.augment.AugmentPipe
     ddp = torch.nn.parallel.DistributedDataParallel(net, device_ids=[device], broadcast_buffers=False)
     ema = copy.deepcopy(net).eval().requires_grad_(False)
-    
+
     if disc_kwargs:
+        # hard coded
+        lossD_fn = dnnlib.util.construct_class_by_name(**{'class_name': 'training.loss.DiscLoss', 'k': loss_kwargs['k']})
         ddp_disc = torch.nn.parallel.DistributedDataParallel(disc, device_ids=[device], broadcast_buffers=False)
         optimizer_disc = dnnlib.util.construct_class_by_name(params=disc.parameters(), **optimizer_kwargs)
 
@@ -133,19 +135,23 @@ def training_loop(
     maintenance_time = tick_start_time - start_time
     dist.update_progress(cur_nimg // 1000, total_kimg)
     stats_jsonl = None
+    img_size = net.img_channels * (net.img_resolution **2)
     while True:
-
+        # train diffusion model
         # Accumulate gradients.
         optimizer.zero_grad(set_to_none=True)
         for round_idx in range(num_accumulation_rounds):
             with misc.ddp_sync(ddp, (round_idx == num_accumulation_rounds - 1)):
-                images, labels = next(dataset_iterator)
-                images = images.to(device).to(torch.float32) / 127.5 - 1
-                labels = labels.to(device)
-                loss = loss_fn(net=ddp, images=images, labels=labels, augment_pipe=augment_pipe)
-                training_stats.report('Loss/loss', loss)
-                loss.sum().mul(loss_scaling / batch_gpu_total).backward()
-
+                with misc.ddp_sync(ddp_disc, (round_idx == num_accumulation_rounds - 1)):
+                    images, labels = next(dataset_iterator)
+                    images = images.to(device).to(torch.float32) / 127.5 - 1
+                    labels = labels.to(device)
+                    loss, fake_pred = loss_fn(net=ddp, disc=ddp_disc, images=images, labels=labels, augment_pipe=augment_pipe)
+                    training_stats.report('LossG/DM', loss)
+                    training_stats.report('LossG/Disc', -fake_pred)
+                    lossG = (loss.sum() - loss_kwargs['gamma'] * img_size * fake_pred.sum()).mul(loss_scaling / batch_gpu_total)
+                    training_stats.report('LossG/Total', lossG)
+                    lossG.backward()
         # Update weights.
         for g in optimizer.param_groups:
             g['lr'] = optimizer_kwargs['lr'] * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)
@@ -153,6 +159,32 @@ def training_loop(
             if param.grad is not None:
                 torch.nan_to_num(param.grad, nan=0, posinf=1e5, neginf=-1e5, out=param.grad)
         optimizer.step()
+        
+        # train discriminator
+        # Accumulate gradients.
+        optimizer_disc.zero_grad(set_to_none=True)
+        for round_idx in range(num_accumulation_rounds):
+            with misc.ddp_sync(ddp, (round_idx == num_accumulation_rounds - 1)):
+                with misc.ddp_sync(ddp_disc, (round_idx == num_accumulation_rounds - 1)):
+                    # images, labels = next(dataset_iterator)
+                    # images = images.to(device).to(torch.float32) / 127.5 - 1
+                    # labels = labels.to(device)
+                    lossD, grad_penalty = lossD_fn(net=ddp, disc=ddp_disc, images=images, labels=labels, augment_pipe=augment_pipe)
+                    training_stats.report('LossD/Disc', loss)
+                    training_stats.report('LossD/grad_penalty', grad_penalty)
+                    lossD = img_size * (lossD + grad_penalty).sum().mul(loss_scaling / batch_gpu_total) 
+                    training_stats.report('LossD/Total', lossD)
+                    lossD.backward()
+        # Update weights.
+        for g in optimizer_disc.param_groups:
+            g['lr'] = optimizer_kwargs['lr'] * min(cur_nimg / max(lr_rampup_kimg * 1000, 1e-8), 1)
+        for param in disc.parameters():
+            if param.grad is not None:
+                torch.nan_to_num(param.grad, nan=0, posinf=1e5, neginf=-1e5, out=param.grad)
+        optimizer_disc.step()
+        breakpoint()
+
+        
 
         # Update EMA.
         ema_halflife_nimg = ema_halflife_kimg * 1000

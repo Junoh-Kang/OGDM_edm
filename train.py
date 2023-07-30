@@ -138,6 +138,8 @@ def main(**kwargs):
         assert opts.precond == 'edm'
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
         c.loss_kwargs.class_name = 'training.loss.EDMLoss'
+    if opts.disc:
+        c.loss_kwargs.update(k=opts.k, gamma=opts.gamma)
 
     # Network options.
     if opts.cbase is not None:
@@ -153,7 +155,7 @@ def main(**kwargs):
     # Discriminator options
     if opts.disc:
         c.disc_kwargs.update(class_name='training.discriminator.Discriminator', t_dim=2)
-    
+
     # Training options.
     c.total_kimg = max(int(opts.duration * 1000), 1)
     c.ema_halflife_kimg = int(opts.ema * 1000)
