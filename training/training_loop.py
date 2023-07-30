@@ -182,9 +182,6 @@ def training_loop(
             if param.grad is not None:
                 torch.nan_to_num(param.grad, nan=0, posinf=1e5, neginf=-1e5, out=param.grad)
         optimizer_disc.step()
-        breakpoint()
-
-        
 
         # Update EMA.
         ema_halflife_nimg = ema_halflife_kimg * 1000
