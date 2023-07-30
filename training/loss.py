@@ -156,6 +156,8 @@ def sigma_ftn(t, sigma_min=0.002, sigma_max=80, rho=7):
 
 # inverse of sigma(t)
 def sigma_inv(sigma, sigma_min=0.002, sigma_max=80, rho=7):
+    # Not all sampled sigma are between min and max
+    sigma = torch.clip(input, min=sigma_min, max=sigma_max)
     assert torch.all(sigma_min <= sigma) and torch.all(sigma <= sigma_max)
     return (sigma**(1/rho) - sigma_max**(1/rho)) / (sigma_min**(1/rho) - sigma_max**(1/rho))
 
