@@ -164,7 +164,7 @@ def sigma_inv(sigma, sigma_min=0.002, sigma_max=80, rho=7):
 # sample projection noise level
 def sample_noise_level(sigma, k=0.1, sigma_min=0.002, sigma_max=80, rho=7):
     t = sigma_inv(sigma, sigma_min=sigma_min, sigma_max=sigma_max, rho=rho)
-    s = torch.minimum(torch.ones_like(sigma), t + k * torch.rand_like(sigma))
+    s = torch.maximum(torch.ones_like(sigma), t + k * torch.rand_like(sigma))
     sigma_next = sigma_ftn(s)
     assert torch.all(sigma >= sigma_min)
     return sigma_next
