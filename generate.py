@@ -47,8 +47,6 @@ def edm_sampler(
         t_hat = net.round_sigma(t_cur + gamma * t_cur)
         x_hat = x_cur + (t_hat ** 2 - t_cur ** 2).sqrt() * S_noise * randn_like(x_cur)
 
-        breakpoint()
-
         # Euler step.
         denoised = net(x_hat, t_hat, class_labels).to(torch.float64)
         d_cur = (x_hat - denoised) / t_hat
@@ -218,7 +216,7 @@ def parse_int_list(s):
 
 @click.command()
 @click.option('--network', 'network_pkl',  help='Network pickle filename', metavar='PATH|URL',                      type=str, required=True)
-@click.option('--outdir',                  help='Where to save the output images', metavar='DIR',                   type=str, required=True)
+@click.option('--outdir',                  help='Where to save the output images', metavar='DIR',                   type=str, required=False)
 @click.option('--seeds',                   help='Random seeds (e.g. 1,2,5-10)', metavar='LIST',                     type=parse_int_list, default='0-63', show_default=True)
 @click.option('--subdirs',                 help='Create subdirectory for every 1000 seeds',                         is_flag=True)
 @click.option('--class', 'class_idx',      help='Class label  [default: random]', metavar='INT',                    type=click.IntRange(min=0), default=None)
@@ -273,6 +271,7 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, device=
         torch.distributed.barrier()
 
     # Loop over batches.
+    all_images = []
     dist.print0(f'Generating {len(seeds)} images to "{outdir}"...')
     for batch_seeds in tqdm.tqdm(rank_batches, unit='batch', disable=(dist.get_rank() != 0)):
         torch.distributed.barrier()
@@ -296,16 +295,22 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, device=
         sampler_fn = ablation_sampler if have_ablation_kwargs else edm_sampler
         images = sampler_fn(net, latents, class_labels, randn_like=rnd.randn_like, **sampler_kwargs)
 
-        # Save images.
-        images_np = (images * 127.5 + 128).clip(0, 255).to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
-        for seed, image_np in zip(batch_seeds, images_np):
-            image_dir = os.path.join(outdir, f'{seed-seed%1000:06d}') if subdirs else outdir
-            os.makedirs(image_dir, exist_ok=True)
-            image_path = os.path.join(image_dir, f'{seed:06d}.png')
-            if image_np.shape[2] == 1:
-                PIL.Image.fromarray(image_np[:, :, 0], 'L').save(image_path)
-            else:
-                PIL.Image.fromarray(image_np, 'RGB').save(image_path)
+        # Gather images
+        images = ((images + 1) * 127.5).clamp(0, 255).to(torch.uint8)
+        images = images.contiguous()
+        gathered_samples = [torch.zeros_like(images) for _ in range(dist.get_world_size())]
+        torch.distributed.all_gather(gathered_samples, images)  # gather not supported with NCCL
+        all_images.extend([sample.cpu() for sample in gathered_samples])
+
+    # Save images.
+    images_np = np.concatenate(all_images, axis=0).transpose(0,2,3,1)
+    if dist.get_rank() == 0:
+        if outdir:
+            save_dir = outdir
+        else:
+            save_dir = os.path.join(*network_pkl.split('/')[:-1], 'sample') 
+        os.makedirs(f"{save_dir}", exist_ok=True)
+        np.savez(f"{save_dir}/step{sampler_kwargs['num_steps']}.npz", images_np)  
 
     # Done.
     torch.distributed.barrier()
