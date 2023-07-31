@@ -96,8 +96,7 @@ class EDMLoss:
     def __call__(self, net, disc, images, labels=None, augment_pipe=None):
         rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        # hard coded
-        sigma = torch.clamp(input=sigma, min=0.002, max=80)
+        sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
         n = torch.randn_like(y) * sigma
@@ -123,8 +122,7 @@ class DiscLoss:
     def __call__(self, net, disc, images, labels=None, augment_pipe=None):
         rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        # hard coded
-        sigma = torch.clamp(input=sigma, min=0.002, max=80)
+        sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
         # weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
         n = torch.randn_like(y) * sigma
@@ -156,20 +154,20 @@ class DiscLoss:
 # sigma(t)
 def sigma_ftn(t, sigma_min=0.002, sigma_max=80, rho=7):
     assert torch.all(0 <= t) and torch.all(t <= 1)
-    return (sigma_max**(1/rho) + t * (sigma_min**(1/rho) - sigma_max**(1/rho)))**rho
-
+    sigma = (sigma_max**(1/rho) + t * (sigma_min**(1/rho) - sigma_max**(1/rho)))**rho
+    return torch.clamp(sigma, min=sigma_min, max=sigma_max)
 # inverse of sigma(t)
 def sigma_inv(sigma, sigma_min=0.002, sigma_max=80, rho=7):
-    # Not all sampled sigma are between min and max
     assert torch.all(sigma_min <= sigma) and torch.all(sigma <= sigma_max)
-    return (sigma**(1/rho) - sigma_max**(1/rho)) / (sigma_min**(1/rho) - sigma_max**(1/rho))
+    t = (sigma**(1/rho) - sigma_max**(1/rho)) / (sigma_min**(1/rho) - sigma_max**(1/rho))
+    return torch.clamp(t, min=0, max=1)
 
 # sample projection noise level
 def sample_noise_level(sigma, k=0.1, sigma_min=0.002, sigma_max=80, rho=7):
     t = sigma_inv(sigma, sigma_min=sigma_min, sigma_max=sigma_max, rho=rho)
     s = torch.minimum(torch.ones_like(sigma), t + k * torch.rand_like(sigma))
     sigma_next = sigma_ftn(s)
-    assert torch.all(sigma_next >= sigma_min)
+    assert torch.all(sigma_next >= sigma_min) and torch.all(sigma_next <= sigma)
     return sigma_next
 
 # EDM step
