@@ -170,7 +170,7 @@ def training_loop(
                     # images = images.to(device).to(torch.float32) / 127.5 - 1
                     # labels = labels.to(device)
                     lossD, grad_penalty = lossD_fn(net=ddp, disc=ddp_disc, images=images, labels=labels, augment_pipe=augment_pipe)
-                    training_stats.report('LossD/Disc', loss)
+                    training_stats.report('LossD/Disc', lossD)
                     training_stats.report('LossD/grad_penalty', grad_penalty)
                     lossD = img_size * (lossD + grad_penalty).sum().mul(loss_scaling / batch_gpu_total) 
                     training_stats.report('LossD/Total', lossD)
