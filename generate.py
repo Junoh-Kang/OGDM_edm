@@ -309,8 +309,9 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, device=
             save_dir = outdir
         else:
             save_dir = os.path.join(*network_pkl.split('/')[:-1], 'sample') 
-        os.makedirs(f"{save_dir}", exist_ok=True)
-        np.savez(f"{save_dir}/step{sampler_kwargs['num_steps']}.npz", images_np)  
+        prefix = network_pkl.split('/')[-1].split('.')[0]
+        os.makedirs(f"{save_dir}/", exist_ok=True)
+        np.savez(f"{save_dir}/{prefix}-step{sampler_kwargs['num_steps']}.npz", images_np)  
 
     # Done.
     torch.distributed.barrier()
