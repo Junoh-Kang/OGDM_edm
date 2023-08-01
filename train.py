@@ -59,7 +59,7 @@ def parse_int_list(s):
 @click.option('--dropout',       help='Dropout probability', metavar='FLOAT',                       type=click.FloatRange(min=0, max=1), default=0.13, show_default=True)
 @click.option('--augment',       help='Augment probability', metavar='FLOAT',                       type=click.FloatRange(min=0, max=1), default=0.12, show_default=True)
 @click.option('--xflip',         help='Enable dataset x-flips', metavar='BOOL',                     type=bool, default=False, show_default=True)
-@click.option('--gamma',         help='weight of GAN loss', metavar='FLOAT',                        type=float, default=0, show_default=False)
+@click.option('--gamma',         help='weight of GAN loss', metavar='FLOAT',                        type=float, default=0.01, show_default=False)
 @click.option('--k',             help='look ahead parameter k', metavar='FLOAT',                    type=click.FloatRange(min=0, max=1), default=0.1)
 
 # Performance-related.
@@ -188,7 +188,10 @@ def main(**kwargs):
     # Description string.
     cond_str = 'cond' if c.dataset_kwargs.use_labels else 'uncond'
     dtype_str = 'fp16' if c.network_kwargs.use_fp16 else 'fp32'
-    desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
+    if opts.disc:
+        desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-k{opts.k}-gamma{opts.gamma}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
+    else:
+        desc = f'{dataset_name:s}-{cond_str:s}-{opts.arch:s}-{opts.precond:s}-gpus{dist.get_world_size():d}-batch{c.batch_size:d}-{dtype_str:s}'
     if opts.desc is not None:
         desc += f'-{opts.desc}'
 

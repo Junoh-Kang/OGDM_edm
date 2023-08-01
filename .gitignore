@@ -4,5 +4,10 @@ classify_image_graph_def.pb
 ./data/
 *.npz
 tools
-training-runs
+test-runs/*
 out
+logs/*
+*.txt
+*.json
+*.jsonl
+*.pkl

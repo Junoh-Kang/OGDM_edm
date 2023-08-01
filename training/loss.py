@@ -102,11 +102,12 @@ class EDMLoss:
         n = torch.randn_like(y) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
-
-        fake, sigma_next = edm_step(net=net, sigma=sigma, x_cur=y+n, k=self.k, class_labels=labels)
-        time_cond = torch.cat((sigma.reshape(-1,1), sigma_next.reshape(-1,1)), dim=1)
-        fake_pred = disc(fake, labels, time_cond).squeeze()
-
+        fake_pred = None
+        if disc:
+            fake, sigma_next = edm_step(net=net, sigma=sigma, x_cur=y+n, k=self.k, class_labels=labels)
+            time_cond = torch.cat((sigma.reshape(-1,1), sigma_next.reshape(-1,1)), dim=1)
+            fake_pred = disc(fake, labels, time_cond).squeeze()
+        
         return loss, fake_pred 
 #----------------------------------------------------------------------------
 # Improved loss function proposed in the paper "Elucidating the Design Space
