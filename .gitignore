@@ -11,3 +11,4 @@ logs/*
 *.json
 *.jsonl
 *.pkl
+evaluations/*

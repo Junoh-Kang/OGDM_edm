@@ -103,10 +103,9 @@ def training_loop(
     ddp = torch.nn.parallel.DistributedDataParallel(net, device_ids=[device], broadcast_buffers=False)
     ema = copy.deepcopy(net).eval().requires_grad_(False)
 
-    
     if disc_kwargs:
         # hard coded
-        lossD_fn = dnnlib.util.construct_class_by_name(**{'class_name': 'training.loss.DiscLoss', 'k': loss_kwargs['k']})
+        lossD_fn = dnnlib.util.construct_class_by_name(**{'class_name': 'training.loss.DiscLoss', 'k': loss_kwargs['k'], 'ddim': loss_kwargs['ddim']})
         ddp_disc = torch.nn.parallel.DistributedDataParallel(disc, device_ids=[device], broadcast_buffers=False)
         optimizer_disc = dnnlib.util.construct_class_by_name(params=disc.parameters(), **optimizer_kwargs)
 

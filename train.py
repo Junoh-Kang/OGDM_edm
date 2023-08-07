@@ -47,6 +47,7 @@ def parse_int_list(s):
 @click.option('--arch',          help='Network architecture', metavar='ddpmpp|ncsnpp|adm',          type=click.Choice(['ddpmpp', 'ncsnpp', 'adm']), default='ddpmpp', show_default=True)
 @click.option('--precond',       help='Preconditioning & loss function', metavar='vp|ve|edm',       type=click.Choice(['vp', 've', 'edm']), default='edm', show_default=True)
 @click.option('--disc',          help='Whether to use discriminator or not', metavar='BOOL',        type=bool, default=False, show_default=True)
+@click.option('--ddim',          help='Whether to use ddim projection or not', metavar='BOOL',        type=bool, default=False, show_default=True)
 
 # Hyperparameters.
 @click.option('--duration',      help='Training duration', metavar='MIMG',                          type=click.FloatRange(min=0, min_open=True), default=200, show_default=True)
@@ -139,7 +140,7 @@ def main(**kwargs):
         c.network_kwargs.class_name = 'training.networks.EDMPrecond'
         c.loss_kwargs.class_name = 'training.loss.EDMLoss'
     if opts.disc:
-        c.loss_kwargs.update(k=opts.k, gamma=opts.gamma)
+        c.loss_kwargs.update(k=opts.k, gamma=opts.gamma, ddim=opts.ddim)
 
     # Network options.
     if opts.cbase is not None:
