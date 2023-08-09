@@ -173,7 +173,7 @@ def ablation_sampler(
             denoised = net(x_prime / s(t_prime), sigma(t_prime), class_labels).to(torch.float64)
             d_prime = (sigma_deriv(t_prime) / sigma(t_prime) + s_deriv(t_prime) / s(t_prime)) * x_prime - sigma_deriv(t_prime) * s(t_prime) / sigma(t_prime) * denoised
             x_next = x_hat + h * ((1 - 1 / (2 * alpha)) * d_cur + 1 / (2 * alpha) * d_prime)
-
+        
     return x_next
 
 #----------------------------------------------------------------------------
@@ -269,7 +269,7 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, device=
     # Other ranks follow.
     if dist.get_rank() == 0:
         torch.distributed.barrier()
-
+    
     # Loop over batches.
     all_images = []
     dist.print0(f'Generating {len(seeds)} images to "{outdir}"...')
@@ -301,7 +301,7 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, device=
         gathered_samples = [torch.zeros_like(images) for _ in range(dist.get_world_size())]
         torch.distributed.all_gather(gathered_samples, images)  # gather not supported with NCCL
         all_images.extend([sample.cpu() for sample in gathered_samples])
-
+    
     # Save images.
     images_np = np.concatenate(all_images, axis=0).transpose(0,2,3,1)
     if dist.get_rank() == 0:
@@ -311,7 +311,8 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, device=
             save_dir = os.path.join(*network_pkl.split('/')[:-1], 'sample') 
         prefix = network_pkl.split('/')[-1].split('.')[0]
         os.makedirs(f"{save_dir}/", exist_ok=True)
-        np.savez(f"{save_dir}/{prefix}-step{sampler_kwargs['num_steps']}.npz", images_np)  
+        sampler_type = "_ddim" if have_ablation_kwargs else ""
+        np.savez(f"{save_dir}/{prefix}-step{sampler_kwargs['num_steps']}{sampler_type}.npz", images_np)  
 
     # Done.
     torch.distributed.barrier()
