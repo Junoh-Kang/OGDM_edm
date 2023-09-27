@@ -92,10 +92,24 @@ class EDMLoss:
         self.gamma=gamma
         self.ddim = ddim
     def __call__(self, net, disc, images, labels=None, augment_pipe=None):
-        # FIXME 
-        rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
-        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
+        # discrete
+        if self.k > 1: 
+            sigma_max, sigma_min = 80, 0.002
+            rho = 7
+            step_indices = torch.arange(self.k, dtype=torch.float64, device=net.device)
+            t_steps = (sigma_max ** (1 / rho) + step_indices / (self.k - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+            try:
+                t_steps = net.round_sigma(t_steps)
+            except:
+                t_steps = net.module.round_sigma(t_steps)
+            index = (torch.ones_like(t_steps) / t_steps.shape[0]).multinomial(num_samples=images.shape[0], replacement=True)
+            sigma = t_steps[index].reshape(-1,1,1,1).to(images.device)
+        # continuous
+        else:
+            rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+            sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+            sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
+
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
         n = torch.randn_like(y) * sigma
@@ -122,9 +136,23 @@ class DiscLoss:
         self.k = k
         self.ddim = ddim
     def __call__(self, net, disc, images, labels=None, augment_pipe=None):
-        rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
-        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
-        sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
+        # discrete
+        if self.k > 1: 
+            sigma_max, sigma_min = 80, 0.002
+            rho = 7
+            step_indices = torch.arange(self.k, dtype=torch.float64, device=net.device)
+            t_steps = (sigma_max ** (1 / rho) + step_indices / (self.k - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+            try:
+                t_steps = net.round_sigma(t_steps)
+            except:
+                t_steps = net.module.round_sigma(t_steps)
+            index = (torch.ones_like(t_steps) / t_steps.shape[0]).multinomial(num_samples=images.shape[0], replacement=True)
+            sigma = t_steps[index].reshape(-1,1,1,1).to(images.device)
+        # continuous
+        else:
+            rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+            sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+            sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
         # weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = augment_pipe(images) if augment_pipe is not None else (images, None)
         n = torch.randn_like(y) * sigma
