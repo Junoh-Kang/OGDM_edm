@@ -84,17 +84,15 @@ class EDMLoss_original:
 
 @persistence.persistent_class
 class EDMLoss:
-    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5,
-                 k=0.1, gamma=0.01, ddim=False
-                 ):
+    def __init__(self, P_mean=-1.2, P_std=1.2, sigma_data=0.5, k=0.1, gamma=0.01, ddim=False):
         self.P_mean = P_mean
         self.P_std = P_std
         self.sigma_data = sigma_data
         self.k = k
         self.gamma=gamma
         self.ddim = ddim
-
     def __call__(self, net, disc, images, labels=None, augment_pipe=None):
+        # FIXME 
         rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         sigma = torch.clamp(input=sigma, min=0.002, max=80) # hard coded
@@ -105,7 +103,8 @@ class EDMLoss:
         loss = weight * ((D_yn - y) ** 2)
         fake_pred = None
         if disc:
-            fake, sigma_next = edm_step(net=net, sigma=sigma, x_cur=y+n, k=self.k, class_labels=labels, ddim=self.ddim)
+            fake, sigma_next = edm_step(net=net, sigma=sigma, x_cur=y+n, k=self.k, 
+                                        class_labels=labels, ddim=self.ddim)
             time_cond = torch.cat((sigma.reshape(-1,1), sigma_next.reshape(-1,1)), dim=1)
             fake_pred = disc(fake, labels, time_cond).squeeze()
         
@@ -134,7 +133,6 @@ class DiscLoss:
         with torch.no_grad():
             fake, sigma_next = edm_step(net=net, sigma=sigma, x_cur=y+n, k=self.k, class_labels=labels, ddim=self.ddim)
             real = y + n * (sigma_next / sigma)
-        # breakpoint()
         real.requires_grad = True
         time_cond = torch.cat((sigma.reshape(-1,1), sigma_next.reshape(-1,1)), dim=1)
         fake_pred = disc(fake, labels, time_cond).squeeze()
@@ -146,13 +144,7 @@ class DiscLoss:
         grad_real = torch.autograd.grad(outputs=real_pred.sum(), inputs=real, create_graph=True)[0]
         grad_penalty = (grad_real.view(grad_real.size(0), -1).norm(2, dim=1) ** 2)
         return lossD, grad_penalty
-        #     terms["grad_penalty"] = grad_penalty
-        #     with th.no_grad():
-        #         terms["real_score"] = th.sigmoid(d_real_pred)
-        #         terms["fake_score"] = th.sigmoid(d_fake_pred)
-        #         terms["real_acc"] = (d_real_pred > 0.0).float()
-        #         terms["fake_acc"] = (d_fake_pred < 0.0).float()
-        # return  lossD
+    
 #----------------------------------------------------------------------------
 # sigma(t)
 def sigma_ftn(t, sigma_min=0.002, sigma_max=80, rho=7):
@@ -172,12 +164,24 @@ def sample_noise_level(sigma, k=0.1, sigma_min=0.002, sigma_max=80, rho=7):
     sigma_next = sigma_ftn(s)
     return torch.clamp(sigma_next, max=sigma)
 
+def deterministic_noise_level(net, sigma, steps, sigma_min=0.002, sigma_max=80, rho=7): 
+    # Time step discretization.
+    step_indices = torch.arange(steps, dtype=torch.float64, device=sigma.device)
+    t_steps = (sigma_max ** (1 / rho) + step_indices / (steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+    try:
+        t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])])
+    except:
+        t_steps = torch.cat([net.module.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) 
+    sigma_next = [] 
+    for sig in sigma.squeeze():
+        sigma_next.append(t_steps[sig > t_steps].max())
+    return torch.tensor(sigma_next, device=sigma.device).reshape(-1,1,1,1)
+
 # EDM step
 def edm_step(
     net, sigma, x_cur, k=0.1, 
     class_labels=None,# randn_like=torch.randn_like,
-    sigma_min=0.002, sigma_max=80, rho=7,
-    ddim=False,
+    sigma_min=0.002, sigma_max=80, rho=7, ddim=False,
     #S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
 ):
     # Adjust noise levels based on what's supported by the network.
@@ -190,12 +194,10 @@ def edm_step(
 
     # Set time step
     t_cur = sigma
-    t_next = sample_noise_level(sigma, k=k, sigma_min=sigma_min, sigma_max=sigma_max, rho=rho)
-    
-    # # Increase noise temporarily.
-    # gamma = min(S_churn / num_steps, np.sqrt(2) - 1) if S_min <= t_cur <= S_max else 0
-    # t_hat = net.round_sigma(t_cur + gamma * t_cur)
-    # x_hat = x_cur + (t_hat ** 2 - t_cur ** 2).sqrt() * S_noise * randn_like(x_cur)
+    if k >= 1:
+        t_next = deterministic_noise_level(net, sigma, steps=int(k), sigma_min=sigma_min, sigma_max=sigma_max, rho=rho)
+    else:
+        t_next = sample_noise_level(sigma, k=k, sigma_min=sigma_min, sigma_max=sigma_max, rho=rho)
     try:
         t_hat = net.round_sigma(t_cur)
     except:
