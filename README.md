@@ -1,8 +1,7 @@
 This is the codebase for [Observation-Guided Diffusion Probabilistic Models](). This repository is based on [NVlabs/edm](https://github.com/NVlabs/edm).
-
 The repository for ADM baseline can be found at [Junoh-Kang/OGDM_adm](https://github.com/Junoh-Kang/OGDM_adm).
 
-#Dependencies
+# Dependencies
 We share the environment of the code by docker.
 ```
 docker pull snucvlab/ogdm:edm
