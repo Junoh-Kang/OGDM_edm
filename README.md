@@ -43,10 +43,10 @@ docker pull snucvlab/ogdm:fid
 Then, run
 ```
 # When activations of reference is not ready, evaluate and save activations at the same time by
-python scripts/fid_prdc.py [reference] [sample] -save_act_path [ref.npz]
+python fid_prdc.py [reference] [sample] -save_act_path [ref.npz]
 
 # When activations of reference is ready, evaluate 
-python scripts/fid_prdc.py [reference] [sample]
+python fid_prdc.py [reference] [sample]
 ```
 to evaluate.
 
