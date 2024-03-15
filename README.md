@@ -1,3 +1,5 @@
+# Observation-Guided Diffusion Probabilistic Models (CVPR 2024)
+
 This is the codebase for [Observation-Guided Diffusion Probabilistic Models](https://arxiv.org/abs/2310.04041v1). This repository is based on [NVlabs/edm](https://github.com/NVlabs/edm).
 The repository for ADM baseline can be found at [Junoh-Kang/OGDM_adm](https://github.com/Junoh-Kang/OGDM_adm).
 
@@ -74,13 +76,14 @@ wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download
 
 # Citation
 ```
-@inproceedings{kang2023odgm,
-  author    = {Junoh Kang and Jinyoung Choi and Sungik Choi and Bohyung Han},
+@inproceedings{kang2024odgm,
+  author    = {Kang, Junoh and Choi, Jinyoung and Choi, Sungik and Han, Bohyung},
   title     = {Observation-Guided Diffusion Probabilistic Models},
-  booktitle = {},
-  year      = {2023}
+  booktitle = {CVPR},
+  year      = {2024}
 }
 ```
 
 # Acknowledgments
+This work was partly supported by LG AI Research, and the IITP grants [No.2022-0-00959, (Part 2) Few-Shot Learning of Causal Inference in Vision and Language for Decision Making; No.2021-0-02068, Artificial Intelligence Innovation Hub (Artificial Intelligence Institute, Seoul National University); No.2021-0-01343, Artificial Intelligence Graduate School Program (Seoul National University)] funded by the Korea government (MSIT).
 
