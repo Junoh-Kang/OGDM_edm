@@ -83,7 +83,3 @@ wget --load-cookies /tmp/cookies.txt "https://docs.google.com/uc?export=download
   year      = {2024}
 }
 ```
-
-# Acknowledgments
-This work was partly supported by LG AI Research, and the IITP grants [No.2022-0-00959, (Part 2) Few-Shot Learning of Causal Inference in Vision and Language for Decision Making; No.2021-0-02068, Artificial Intelligence Innovation Hub (Artificial Intelligence Institute, Seoul National University); No.2021-0-01343, Artificial Intelligence Graduate School Program (Seoul National University)] funded by the Korea government (MSIT).
-
